@@ -1,5 +1,36 @@
 # Day 11 — Controlled Agent Security (2026)
 
+## Thông tin học viên
+
+| | |
+|---|---|
+| **Họ tên** | Hoàng Nhật Minh |
+| **MSSV** | 2A202603992 |
+| **Lớp** | K5 — L3B |
+| **Repo** | `K5-L3B-DAY11-HoangNhatMinh-2A202603992-Guardrails-HITL-Responsible-AI` |
+| **Red / Red Advance** | Gemini `gemini-3.5-flash` |
+
+### Cách chạy (macOS / Linux)
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env   # điền OPENROUTER_API_KEY, RED_TEAM_PROVIDER=gemini, GOOGLE_API_KEY
+python src/main.py --part 2   # CP2 — guardrails
+python src/main.py --part 3   # CP3 — pipeline → outputs/results.json
+python src/main.py --part 4   # CP4 — Red / Red Advance → outputs/attack_results.json
+pytest tests/smoke -q && pytest tests/public -q
+python scripts/grade.py --submission-dir . --out outputs/grade_report.json
+```
+
+### Tóm tắt kết quả
+
+- **Phòng thủ (CP2–3):** chặn nhầm 0/6 câu an toàn, chặn 9/9 tấn công và 7/7 edge case; rate limit chặn 5/15 request; egress allowlist chỉ cho phép host VinBank qua HTTPS.
+- **Tấn công (CP4):** Red lộ secret 4/5 prompt; Red Advance chặn 5/5 (regex + NeMo Guardrails).
+- Báo cáo tự sinh: [`outputs/lab_report.md`](outputs/lab_report.md).
+
+---
+
 > 👤 **Hình thức:** bài tập **cá nhân** (1 người / 1 MSSV).  
 > 🎯 **Mục tiêu:** đóng vai **Blue Team** để học cách xây Guardrails phòng thủ, rồi đóng vai **Red Team** để tấn công agent **Red** hoặc **Red Advance**.  
 > ✅ Làm theo **Checkpoint 1 → 5** trong [`CHECKPOINTS.md`](CHECKPOINTS.md) · nộp theo [`SUBMISSION.md`](SUBMISSION.md).
@@ -75,8 +106,8 @@ Bonus lab chỉ tính **một** trong hai: leak **Red** (B1, tối đa +5) hoặ
 
 Codelab lớp: xem `template-codelabs/codelab-day11-k4-l3a.md` (L3A) hoặc bản L3B tương ứng.
 
-**Repo nộp học viên:** `K4-<L3A hoặc L3B>-DAY11-<HoVaTen>-<MSSV>-Guardrails-HITL-Responsible-AI`  
-Ví dụ: `K4-L3A-DAY11-NguyenVanA-2A2026xxxxx-Guardrails-HITL-Responsible-AI`
+**Repo nộp học viên:** `K5-<L3A hoặc L3B>-DAY11-<HoVaTen>-<MSSV>-Guardrails-HITL-Responsible-AI`  
+Ví dụ: `K5-L3A-DAY11-NguyenVanA-2A2026xxxxx-Guardrails-HITL-Responsible-AI`
 
 ---
 
