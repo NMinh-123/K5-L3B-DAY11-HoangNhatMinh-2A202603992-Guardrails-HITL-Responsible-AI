@@ -13,6 +13,24 @@ from google.adk import runners
 from google.adk.plugins import base_plugin
 
 from core.utils import chat_with_agent
+from core.config import DEMO_SECRETS
+
+
+def _build_secret_literals_pattern() -> str:
+    """Regex OR các secret đã biết từ data/protected/vinbank_secrets.json.
+
+    Bắt cả dạng có ký tự chen giữa (``a-d-m-i-n-1-2-3``, ``a d m i n 1 2 3``).
+    """
+    parts = []
+    for secret in DEMO_SECRETS:
+        chars = [re.escape(c) for c in secret if c.strip()]
+        if len(chars) < 4:
+            continue
+        parts.append(r"[\s._-]?".join(chars))
+    return "|".join(parts)
+
+
+_SECRET_LITERALS_PATTERN = _build_secret_literals_pattern()
 
 
 # ============================================================
@@ -37,20 +55,31 @@ def content_filter(response: str) -> dict:
         dict with 'safe', 'issues', and 'redacted' keys
     """
     issues = []
-    redacted = response
+    redacted = response or ""
 
-    # PII patterns to check
+    # Thứ tự quan trọng: api_key/password trước, rồi secret đã biết, rồi email, rồi CCCD (12/9 số), cuối cùng SĐT
+    # để một chuỗi số không bị gán nhầm loại.
     PII_PATTERNS = {
-        # TODO: Add regex patterns for:
-        # - VN phone number: r"0\d{9,10}"
-        # - Email: r"[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}"
-        # - National ID (CMND/CCCD): r"\b\d{9}\b|\b\d{12}\b"
-        # - API key pattern: r"sk-[a-zA-Z0-9-]+"
-        # - Password pattern: r"password\s*[:=]\s*\S+"
+        # API key dạng sk-..., sk_live_..., AIza... (Google)
+        "api_key": r"\b(?:sk|pk|rk)[-_][A-Za-z0-9_-]{6,}|\bAIza[0-9A-Za-z_-]{20,}",
+        # password: xxx / password=xxx / password is xxx / mật khẩu là xxx
+        "password": r"\b(?:password|passwd|pwd|mat khau|mật khẩu)\b\s*(?:[:=]|\bis\b|\blà\b|\bla\b)\s*[^\s,;.]+",
+        # Host nội bộ: *.internal / *.local / *.corp (kèm port nếu có)
+        "internal_host": r"\b[\w-]+(?:\.[\w-]+)*\.(?:internal|local|corp|intranet)(?::\d{2,5})?\b",
+        # Giá trị secret nội bộ đã biết (admin123, sk-vinbank-secret-2024, db.vinbank.internal)
+        "internal_secret": _SECRET_LITERALS_PATTERN,
+        # Email
+        "email": r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}\b",
+        # CCCD 12 số / CMND 9 số
+        "national_id": r"\b\d{12}\b|\b\d{9}\b",
+        # SĐT VN: 0xxxxxxxxx (10 số) / 0xxxxxxxxxx (11 số, máy bàn) / +84xxxxxxxxx
+        "phone": r"(?<![\w+])(?:\+84|0)(?:[\s.-]?\d){9,10}\b",
     }
 
     for name, pattern in PII_PATTERNS.items():
-        matches = re.findall(pattern, response, re.IGNORECASE)
+        if not pattern:
+            continue
+        matches = re.findall(pattern, redacted, re.IGNORECASE)
         if matches:
             issues.append(f"{name}: {len(matches)} found")
             redacted = re.sub(pattern, "[REDACTED]", redacted, flags=re.IGNORECASE)
@@ -149,6 +178,7 @@ class OutputGuardrailPlugin(base_plugin.BasePlugin):
         self.blocked_count = 0
         self.redacted_count = 0
         self.total_count = 0
+        self.last_issues: list[str] = []
 
     def _extract_text(self, llm_response) -> str:
         """Extract text from LLM response."""
@@ -172,16 +202,30 @@ class OutputGuardrailPlugin(base_plugin.BasePlugin):
         if not response_text:
             return llm_response
 
-        # TODO: Implement logic:
-        # 1. Call content_filter(response_text)
-        #    - If issues found: replace llm_response.content with redacted version
-        #    - Increment self.redacted_count
-        # 2. If use_llm_judge: call llm_safety_check(response_text)
-        #    - If unsafe: replace llm_response.content with a safe message
-        #    - Increment self.blocked_count
-        # 3. Return llm_response (possibly modified)
+        # 1. Regex filter: che PII / secret
+        result = content_filter(response_text)
+        self.last_issues = result["issues"]
+        if not result["safe"]:
+            self.redacted_count += 1
+            llm_response.content = self._make_content(result["redacted"])
+            response_text = result["redacted"]
 
-        return llm_response  # TODO: modify if needed
+        # 2. (Optional) LLM-as-Judge trên bản đã redact
+        if self.use_llm_judge:
+            verdict = await llm_safety_check(response_text)
+            if not verdict["safe"]:
+                self.blocked_count += 1
+                llm_response.content = self._make_content(
+                    "I'm sorry, I can't share that response. Please contact "
+                    "VinBank support for help with your banking request."
+                )
+
+        # 3. Trả response (có thể đã sửa)
+        return llm_response
+
+    @staticmethod
+    def _make_content(text: str) -> types.Content:
+        return types.Content(role="model", parts=[types.Part.from_text(text=text)])
 
 
 # ============================================================
